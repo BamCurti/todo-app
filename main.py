@@ -1,15 +1,11 @@
-from flask import Flask
-from flask import request
-from flask import make_response
-from flask import redirect
-from flask import render_template
-from flask import session
-from flask import url_for
-from flask import flash
-from flask_bootstrap import Bootstrap
 import unittest
+from flask import request, make_response, redirect, render_template, session, url_for, flash
+from flask_login import login_required, current_user
+
+
 from app import create_app
-from app.forms import LoginForm
+from app.forms import TodoForm, DeleteForm, UpdateTodoForm
+from app.firestore_service import delete_todo, get_todos, put_todo, update_todo
 
 app = create_app()
 
@@ -22,44 +18,61 @@ def test():
 
 @app.errorhandler(404)
 def not_found(error):
-    return render_template("404.html", error=error)
+    return render_template('404.html', error=error)
 
 
-@app.route("/")
+@app.errorhandler(500)
+def server_error(error):
+    return render_template('500.html', error=error)
+
+
+@app.route('/')
 def index():
     user_ip = request.remote_addr
 
-    response = make_response(redirect("/hello"))
-    session["user_ip"] = user_ip
+    response = make_response(redirect('/hello'))
+    session['user_ip'] = user_ip
 
     return response
 
 
-@app.route("/hello", methods=["GET", "POST"])
+@app.route('/hello', methods=['GET', 'POST'])
+@login_required
 def hello():
-    todos = {
-        "Comprar café",
-        "Hacer tarea lenguajes formales",
-        "Acabar de documentar homework recollector",
-    }
-
-    user_ip = session.get("user_ip")
-    login_form = LoginForm()
-    username = session.get("username")
+    user_ip = session.get('user_ip')
+    username = current_user.id
+    todo_form = TodoForm()
+    delete_form = DeleteForm()
+    update_form = UpdateTodoForm()
 
     context = {
-        "todos": todos,
-        "user_ip": user_ip,
-        'login_form': login_form,
-        'username': username
+        'user_ip': user_ip,
+        'todos': get_todos(user_id=username),
+        'username': username,
+        'todo_form': todo_form,
+        'delete_form': delete_form,
+        'update_form':update_form
     }
 
-    if login_form.validate_on_submit():
-        username = login_form.username.data
-        session['username'] = username
+    if todo_form.validate_on_submit():
+        put_todo(user_id=username, description=todo_form.description.data )
+        flash('Tarea creada')
+        return redirect(url_for('hello'))
 
-        flash('Nombre de usuario registrado con éxito!')
+    return render_template('hello.html', **context)
 
-        return redirect(url_for("index"))
+@app.route('/todos/delete/<todo_id>', methods=['POST'])
+def delete(todo_id):
+    user_id = current_user.id
+    delete_todo(user_id=user_id, todo_id=todo_id)
 
-    return render_template("hello.html", **context)
+    return redirect(url_for('hello'))
+
+@app.route('/todos/update/<todo_id>/<int:done>', methods=['POST'])
+def update(todo_id, done):
+    user_id = current_user.id
+    print('Done', done)
+    update_todo(user_id=user_id, todo_id=todo_id, done=done)
+
+    return redirect(url_for('hello'))
+    
